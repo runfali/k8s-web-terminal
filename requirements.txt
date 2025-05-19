@@ -1,0 +1,6 @@
+fastapi==0.104.1
+uvicorn[standard]==0.23.2
+kubernetes==17.17.0
+websockets==14.1
+python-multipart==0.0.6
+asyncpg>=0.27.0  # 用于异步 PostgreSQL 操作
