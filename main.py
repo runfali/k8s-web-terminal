@@ -38,9 +38,10 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有请求头
 )
 
-# 配置文件路径
-CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
-KUBE_CONFIG_FILE = os.path.join(CONFIG_DIR, "config")
+# 配置文件路径，按需配置是否使用绝对路径
+# CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
+# KUBE_CONFIG_FILE = os.path.join(CONFIG_DIR, "config")
+KUBE_CONFIG_FILE = "/data/k8s_web_terminal/config/config"  # 使用绝对路径
 
 # 模板目录
 templates = Jinja2Templates(directory="templates")
@@ -180,17 +181,24 @@ async def websocket_endpoint(
     try:
         # 加载 K8s 配置
         if not os.path.exists(KUBE_CONFIG_FILE):
-            await websocket.send_text(
-                f"错误：在 {KUBE_CONFIG_FILE} 处未找到 Kubernetes 配置文件\r\n"
-            )
+            error_msg = f"错误：在 {KUBE_CONFIG_FILE} 处未找到 Kubernetes 配置文件\r\n"
+            print(error_msg)
+            await websocket.send_text(error_msg)
             await websocket.close()
             return
 
         try:
             # 加载 K8s 配置
-            kubernetes.config.load_kube_config(config_file=KUBE_CONFIG_FILE)
+            # 确保配置文件存在并且可以被正确加载
+            if not os.path.isfile(KUBE_CONFIG_FILE):
+                error_msg = f"错误：Kubernetes 配置文件 {KUBE_CONFIG_FILE} 不是一个有效的文件\r\n"
+                print(error_msg)
+                await websocket.send_text(error_msg)
+                await websocket.close()
+                return
 
-            # 获取默认配置的副本并修改 SSL 验证行为
+            # 直接使用配置文件路径，不创建临时文件
+            kubernetes.config.load_kube_config(config_file=KUBE_CONFIG_FILE)
             k8s_client_config = K8sConfiguration.get_default_copy()
             k8s_client_config.verify_ssl = False
             # 可选: 如果服务器证书的主机名与请求的主机名不匹配，禁用主机名断言
@@ -473,9 +481,20 @@ async def upload_file_to_pod(
     try:
         # 加载 K8s 配置 (与 websocket_endpoint 中类似)
         if not os.path.exists(KUBE_CONFIG_FILE):
-            return {"error": f"在 {KUBE_CONFIG_FILE} 处未找到 Kubernetes 配置文件"}
+            error_msg = f"在 {KUBE_CONFIG_FILE} 处未找到 Kubernetes 配置文件"
+            print(error_msg)
+            return {"error": error_msg}
 
         try:
+            # 确保配置文件存在并且可以被正确加载
+            if not os.path.isfile(KUBE_CONFIG_FILE):
+                error_msg = (
+                    f"错误：Kubernetes 配置文件 {KUBE_CONFIG_FILE} 不是一个有效的文件"
+                )
+                print(error_msg)
+                return {"error": error_msg}
+
+            # 直接使用配置文件路径，不创建临时文件
             kubernetes.config.load_kube_config(config_file=KUBE_CONFIG_FILE)
             k8s_client_config = K8sConfiguration.get_default_copy()
             k8s_client_config.verify_ssl = False
