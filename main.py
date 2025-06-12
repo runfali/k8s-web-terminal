@@ -205,8 +205,8 @@ async def websocket_endpoint(
             # k8s_client_config.assert_hostname = False
             # 新增: 配置与 K8s API Server 的 WebSocket 连接的 ping/pong
             k8s_client_config.websocket_client_params = {
-                "ping_interval": 30,  # 每30秒发送一次ping (增加间隔，减少频繁ping)
-                "ping_timeout": 60,  # 60秒内未收到pong则超时 (大幅增加超时时间)
+                "ping_interval": 20,  # 从60秒改为20秒
+                "ping_timeout": 30,  # 从120秒改为30秒
                 "max_size": 10 * 1024 * 1024,  # 增加最大消息大小到10MB，处理大量数据
                 "skip_utf8_validation": True,  # 跳过UTF-8验证以提高性能
             }
@@ -293,7 +293,7 @@ async def websocket_endpoint(
                             last_activity_time = asyncio.get_event_loop().time()
 
                     current_time = asyncio.get_event_loop().time()
-                    if current_time - last_activity_time > 60:
+                    if current_time - last_activity_time > 60:  # 从120秒改为60秒
                         try:
                             if websocket.client_state == WebSocketState.CONNECTED:
                                 await websocket.send_text(
@@ -331,7 +331,7 @@ async def websocket_endpoint(
                         # 设置超时，避免长时间阻塞
                         data = await asyncio.wait_for(
                             websocket.receive_text(),
-                            timeout=60,  # 60秒超时，可以根据需要调整
+                            timeout=60,  # 从300秒改为60秒
                         )
 
                         if not resp.is_open():
@@ -500,8 +500,8 @@ async def upload_file_to_pod(
             k8s_client_config.verify_ssl = False
             # 新增: 配置与 K8s API Server 的 WebSocket 连接的 ping/pong
             k8s_client_config.websocket_client_params = {
-                "ping_interval": 30,  # 每30秒发送一次ping (增加间隔，减少频繁ping)
-                "ping_timeout": 60,  # 60秒内未收到pong则超时 (大幅增加超时时间)
+                "ping_interval": 20,  # 从60秒改为20秒
+                "ping_timeout": 30,  # 从120秒改为30秒
                 "max_size": 10 * 1024 * 1024,  # 增加最大消息大小到10MB，处理大量数据
                 "skip_utf8_validation": True,  # 跳过UTF-8验证以提高性能
             }
@@ -648,9 +648,9 @@ if __name__ == "__main__":  # 添加了空行以符合 PEP8
         app,
         host="0.0.0.0",
         port=8006,
-        ws_ping_interval=30,  # 每30秒发送一次ping（增加间隔）
-        ws_ping_timeout=60,  # 60秒内未收到pong则超时（增加超时）
-        timeout_keep_alive=120,  # 保持连接活跃的超时时间（增加）
+        ws_ping_interval=20,  # 从60秒改为20秒
+        ws_ping_timeout=30,  # 从120秒改为30秒
+        timeout_keep_alive=60,  # 从120秒改为60秒
         limit_concurrency=100,  # 限制并发连接数
         limit_max_requests=10000,  # 限制最大请求数
     )

@@ -398,7 +398,7 @@
 
                 // 如果超过90秒没有收到任何消息，发送一个心跳包
                 const now = Date.now();
-                if (now - lastHeartbeatTime > 90000) {
+                if (now - lastHeartbeatTime > 20000) { // 从90秒改为20秒
                     try {
                         socket.send("\x00");
                         console.log("发送心跳包");
@@ -406,7 +406,7 @@
                         console.error("发送心跳包失败:", e);
                     }
                 }
-            }, 30000); // 每30秒检查一次
+            }, 10000); // 从30秒改为10秒检查一次
 
             socket.onerror = (error) => {
                 console.error('WebSocket 错误：', error);
