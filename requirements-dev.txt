@@ -1,0 +1,28 @@
+# 开发环境专用依赖
+# 安装方式: pip install -r requirements-dev.txt
+
+# 首先安装基础依赖
+-r requirements.txt
+
+# ===== 测试框架 =====
+pytest>=7.0.0                       # 单元测试框架
+pytest-asyncio>=0.21.0              # 异步测试支持
+pytest-cov>=4.0.0                   # 测试覆盖率
+httpx>=0.24.0                       # 异步HTTP客户端，用于API测试
+
+# ===== 代码质量工具 =====
+black>=23.0.0                       # 代码格式化
+isort>=5.0.0                        # 导入排序
+flake8>=6.0.0                       # 代码风格检查
+mypy>=1.0.0                         # 静态类型检查
+
+# ===== 安全检查 =====
+safety>=2.0.0                       # 依赖安全漏洞检查
+bandit>=1.7.0                       # 代码安全漏洞检查
+
+# ===== 性能分析 =====
+memory-profiler>=0.60.0             # 内存使用分析
+
+# ===== 文档生成 =====
+mkdocs>=1.5.0                       # 文档生成工具
+mkdocs-material>=9.0.0              # Material Design主题

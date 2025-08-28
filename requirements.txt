@@ -1,6 +1,30 @@
-fastapi==0.104.1
-uvicorn[standard]==0.23.2
-kubernetes==17.17.0
-websockets==14.1
-python-multipart==0.0.6
-asyncpg>=0.27.0  # 用于异步 PostgreSQL 操作
+# ===== 核心Web框架 =====
+fastapi==0.104.1                    # 现代高性能Web框架
+uvicorn[standard]==0.23.2            # ASGI服务器，包含额外依赖
+jinja2>=3.1.0                       # 模板引擎，FastAPI模板渲染需要
+
+# ===== Kubernetes集成 =====
+kubernetes==17.17.0                 # Kubernetes Python客户端
+
+# ===== WebSocket和异步处理 =====
+websockets==14.1                    # WebSocket支持
+
+# ===== 文件处理 =====
+python-multipart==0.0.6             # 文件上传支持
+
+# ===== 数据库 =====
+asyncpg>=0.27.0                     # 异步PostgreSQL驱动
+
+# ===== 数据验证和模型 =====
+pydantic>=2.0.0                     # 数据验证（FastAPI依赖）
+
+# ===== 类型支持 =====
+typing-extensions>=4.0.0            # 类型支持增强
+
+# ===== 开发和调试工具（可选） =====
+# 取消注释以下行来安装开发工具
+# pytest>=7.0.0                     # 单元测试框架
+# black>=23.0.0                     # 代码格式化
+# isort>=5.0.0                      # 导入排序
+# mypy>=1.0.0                       # 类型检查
+# flake8>=6.0.0                     # 代码质量检查
