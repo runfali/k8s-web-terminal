@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>浏览器端性能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .test-controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .test-controls label {
+            display: inline-block;
+            width: 120px;
+            margin-right: 10px;
+        }
+
+        .test-controls input,
+        .test-controls select {
+            margin: 5px;
+            padding: 5px;
+        }
+
+        .button-group {
+            margin: 15px 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .terminals-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .terminal-wrapper {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .terminal-header {
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .terminal-status {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        .status-connected {
+            background: #28a745;
+        }
+
+        .status-disconnected {
+            background: #dc3545;
+        }
+
+        .status-connecting {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .terminal {
+            height: 200px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #00ff00;
+            overflow-y: auto;
+            background: #000;
+        }
+
+        .performance-stats {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #007bff;
+            transition: width 0.3s ease;
+        }
+
+        .log-area {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+
+        .log-info {
+            color: #007bff;
+        }
+
+        .log-success {
+            color: #28a745;
+        }
+
+        .log-warning {
+            color: #ffc107;
+        }
+
+        .log-error {
+            color: #dc3545;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>浏览器端性能测试工具</h1>
+        <p>测试多终端并发操作的性能表现</p>
+
+        <div class="test-controls">
+            <h3>测试配置</h3>
+            <div>
+                <label>服务器地址:</label>
+                <input type="text" id="serverUrl" value="ws://localhost:8080" style="width: 200px;">
+            </div>
+            <div>
+                <label>命名空间:</label>
+                <input type="text" id="namespace" value="default" style="width: 100px;">
+            </div>
+            <div>
+                <label>Pod名称:</label>
+                <input type="text" id="podName" value="test-pod" style="width: 100px;">
+            </div>
+            <div>
+                <label>终端数量:</label>
+                <select id="terminalCount">
+                    <option value="1">1个</option>
+                    <option value="5" selected>5个</option>
+                    <option value="10">10个</option>
+                    <option value="15">15个</option>
+                    <option value="20">20个</option>
+                </select>
+            </div>
+            <div>
+                <label>测试时长(秒):</label>
+                <input type="number" id="testDuration" value="30" min="10" max="300" style="width: 80px;">
+            </div>
+
+            <div class="button-group">
+                <button class="btn-primary" onclick="startTest()">开始测试</button>
+                <button class="btn-warning" onclick="stopTest()">停止测试</button>
+                <button class="btn-success" onclick="exportResults()">导出结果</button>
+                <button class="btn-danger" onclick="clearResults()">清除结果</button>
+            </div>
+        </div>
+
+        <div class="performance-stats" id="performanceStats" style="display: none;">
+            <h3>性能统计</h3>
+            <div class="stats-grid" id="statsGrid"></div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+            </div>
+        </div>
+
+        <div class="terminals-container" id="terminalsContainer"></div>
+
+        <div class="log-area" id="logArea">
+            <strong>测试日志:</strong>
+        </div>
+    </div>
+
+    <script>
+        class TerminalPerformanceTest {
+            constructor() {
+                this.terminals = [];
+                this.isTesting = false;
+                this.startTime = null;
+                this.testDuration = 0;
+                this.stats = {
+                    totalMessages: 0,
+                    totalErrors: 0,
+                    totalConnections: 0,
+                    failedConnections: 0,
+                    avgResponseTime: 0,
+                    maxResponseTime: 0,
+                    minResponseTime: Infinity
+                };
+                this.responseTimes = [];
+            }
+
+            log(message, type = 'info') {
+                const logArea = document.getElementById('logArea');
+                const entry = document.createElement('div');
+                entry.className = `log-entry log-${type}`;
+                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                logArea.appendChild(entry);
+                logArea.scrollTop = logArea.scrollHeight;
+            }
+
+            createTerminals(count) {
+                const container = document.getElementById('terminalsContainer');
+                container.innerHTML = '';
+                this.terminals = [];
+
+                for (let i = 0; i < count; i++) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'terminal-wrapper';
+                    wrapper.innerHTML = `
+                        <div class="terminal-header">
+                            <span>终端 ${i + 1}</span>
+                            <span class="terminal-status status-disconnected" id="status-${i}">未连接</span>
+                        </div>
+                        <div class="terminal" id="terminal-${i}"></div>
+                    `;
+                    container.appendChild(wrapper);
+
+                    this.terminals.push({
+                        id: i,
+                        element: document.getElementById(`terminal-${i}`),
+                        statusElement: document.getElementById(`status-${i}`),
+                        socket: null,
+                        messageCount: 0,
+                        errorCount: 0,
+                        responseTimes: [],
+                        isConnected: false
+                    });
+                }
+            }
+
+            async connectTerminal(terminal, serverUrl, namespace, podName) {
+                const wsUrl = `${serverUrl.replace('http', 'ws')}/ws/${namespace}/${podName}`;
+
+                try {
+                    this.log(`终端 ${terminal.id + 1}: 正在连接...`, 'info');
+                    terminal.statusElement.textContent = '连接中...';
+                    terminal.statusElement.className = 'terminal-status status-connecting';
+
+                    const socket = new WebSocket(wsUrl);
+                    terminal.socket = socket;
+
+                    return new Promise((resolve, reject) => {
+                        const connectionTimeout = setTimeout(() => {
+                            reject(new Error('连接超时'));
+                        }, 10000);
+
+                        socket.onopen = () => {
+                            clearTimeout(connectionTimeout);
+                            terminal.isConnected = true;
+                            terminal.statusElement.textContent = '已连接';
+                            terminal.statusElement.className = 'terminal-status status-connected';
+                            this.stats.totalConnections++;
+                            this.log(`终端 ${terminal.id + 1}: 连接成功`, 'success');
+                            resolve();
+                        };
+
+                        socket.onmessage = (event) => {
+                            const responseTime = Date.now() - (terminal.lastSendTime || Date.now());
+
+                            // 更新统计
+                            terminal.messageCount++;
+                            this.stats.totalMessages++;
+                            terminal.responseTimes.push(responseTime);
+                            this.responseTimes.push(responseTime);
+
+                            // 更新响应时间统计
+                            this.stats.avgResponseTime = this.responseTimes.reduce((a, b) => a + b, 0) / this.responseTimes.length;
+                            this.stats.maxResponseTime = Math.max(this.stats.maxResponseTime, responseTime);
+                            this.stats.minResponseTime = Math.min(this.stats.minResponseTime, responseTime);
+
+                            // 显示消息（限制显示长度）
+                            const displayData = event.data.length > 100 ?
+                                event.data.substring(0, 100) + '...' : event.data;
+                            terminal.element.textContent += displayData;
+                            terminal.element.scrollTop = terminal.element.scrollHeight;
+                        };
+
+                        socket.onerror = (error) => {
+                            clearTimeout(connectionTimeout);
+                            terminal.errorCount++;
+                            this.stats.totalErrors++;
+                            this.log(`终端 ${terminal.id + 1}: 连接错误 - ${error}`, 'error');
+                            reject(error);
+                        };
+
+                        socket.onclose = () => {
+                            terminal.isConnected = false;
+                            terminal.statusElement.textContent = '已断开';
+                            terminal.statusElement.className = 'terminal-status status-disconnected';
+                            this.log(`终端 ${terminal.id + 1}: 连接关闭`, 'warning');
+                        };
+                    });
+
+                } catch (error) {
+                    terminal.statusElement.textContent = '连接失败';
+                    terminal.statusElement.className = 'terminal-status status-disconnected';
+                    this.stats.failedConnections++;
+                    this.log(`终端 ${terminal.id + 1}: 连接失败 - ${error.message}`, 'error');
+                    throw error;
+                }
+            }
+
+            async sendTestCommands(terminal) {
+                const commands = [
+                    "echo 'Performance test started'\n",
+                    "ls -la / | head -20\n",
+                    "ps aux | head -20\n",
+                    "df -h\n",
+                    "cat /etc/passwd | head -10\n",
+                    "find /usr -name '*.conf' 2>/dev/null | head -5\n",
+                    "echo 'Test data line 1'\n",
+                    "echo 'Test data line 2'\n",
+                    "echo 'Test data line 3'\n"
+                ];
+
+                for (let i = 0; i < commands.length; i++) {
+                    if (!this.isTesting || !terminal.isConnected) break;
+
+                    try {
+                        terminal.lastSendTime = Date.now();
+                        terminal.socket.send(commands[i]);
+
+                        // 命令间隔
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    } catch (error) {
+                        terminal.errorCount++;
+                        this.stats.totalErrors++;
+                        this.log(`终端 ${terminal.id + 1}: 发送命令失败 - ${error}`, 'error');
+                        break;
+                    }
+                }
+            }
+
+            updateStats() {
+                const statsGrid = document.getElementById('statsGrid');
+                const connectedTerminals = this.terminals.filter(t => t.isConnected).length;
+                const totalMessages = this.terminals.reduce((sum, t) => sum + t.messageCount, 0);
+                const totalErrors = this.terminals.reduce((sum, t) => sum + t.errorCount, 0);
+
+                statsGrid.innerHTML = `
+                    <div class="stat-item">
+                        <div class="stat-label">已连接终端</div>
+                        <div class="stat-value">${connectedTerminals}/${this.terminals.length}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">总消息数</div>
+                        <div class="stat-value">${totalMessages}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">错误数</div>
+                        <div class="stat-value">${totalErrors}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">平均响应时间</div>
+                        <div class="stat-value">${this.stats.avgResponseTime.toFixed(0)}ms</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">最大响应时间</div>
+                        <div class="stat-value">${this.stats.maxResponseTime.toFixed(0)}ms</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">最小响应时间</div>
+                        <div class="stat-value">${this.stats.minResponseTime === Infinity ? 0 : this.stats.minResponseTime.toFixed(0)}ms</div>
+                    </div>
+                `;
+
+                // 更新进度条
+                if (this.startTime) {
+                    const elapsed = (Date.now() - this.startTime) / 1000;
+                    const progress = Math.min((elapsed / this.testDuration) * 100, 100);
+                    document.getElementById('progressFill').style.width = `${progress}%`;
+                }
+            }
+
+            async startTest() {
+                if (this.isTesting) {
+                    this.log('测试已在进行中', 'warning');
+                    return;
+                }
+
+                const serverUrl = document.getElementById('serverUrl').value;
+                const namespace = document.getElementById('namespace').value;
+                const podName = document.getElementById('podName').value;
+                const terminalCount = parseInt(document.getElementById('terminalCount').value);
+                const testDuration = parseInt(document.getElementById('testDuration').value);
+
+                this.log(`开始性能测试 - 终端数: ${terminalCount}, 时长: ${testDuration}秒`, 'info');
+
+                // 重置统计
+                this.stats = {
+                    totalMessages: 0,
+                    totalErrors: 0,
+                    totalConnections: 0,
+                    failedConnections: 0,
+                    avgResponseTime: 0,
+                    maxResponseTime: 0,
+                    minResponseTime: Infinity
+                };
+                this.responseTimes = [];
+                this.isTesting = true;
+                this.startTime = Date.now();
+                this.testDuration = testDuration;
+
+                // 显示统计面板
+                document.getElementById('performanceStats').style.display = 'block';
+
+                // 创建终端
+                this.createTerminals(terminalCount);
+
+                // 连接所有终端
+                const connectPromises = this.terminals.map(terminal =>
+                    this.connectTerminal(terminal, serverUrl, namespace, podName)
+                );
+
+                try {
+                    await Promise.allSettled(connectPromises);
+
+                    // 开始发送测试命令
+                    const commandPromises = this.terminals
+                        .filter(t => t.isConnected)
+                        .map(terminal => this.sendTestCommands(terminal));
+
+                    // 并行执行命令发送
+                    Promise.allSettled(commandPromises);
+
+                    // 定期更新统计
+                    const statsInterval = setInterval(() => {
+                        this.updateStats();
+                        if (!this.isTesting) {
+                            clearInterval(statsInterval);
+                        }
+                    }, 1000);
+
+                    // 测试时长结束后停止
+                    setTimeout(() => {
+                        if (this.isTesting) {
+                            this.stopTest();
+                        }
+                    }, testDuration * 1000);
+
+                } catch (error) {
+                    this.log(`测试启动失败: ${error}`, 'error');
+                    this.stopTest();
+                }
+            }
+
+            stopTest() {
+                if (!this.isTesting) {
+                    this.log('没有正在进行的测试', 'warning');
+                    return;
+                }
+
+                this.log('停止测试', 'info');
+                this.isTesting = false;
+
+                // 关闭所有WebSocket连接
+                this.terminals.forEach(terminal => {
+                    if (terminal.socket && terminal.socket.readyState === WebSocket.OPEN) {
+                        terminal.socket.close();
+                    }
+                });
+
+                // 显示最终统计
+                this.updateStats();
+                this.log('测试已完成', 'success');
+
+                // 生成测试报告
+                this.generateReport();
+            }
+
+            generateReport() {
+                const connectedTerminals = this.terminals.filter(t => t.isConnected).length;
+                const totalMessages = this.terminals.reduce((sum, t) => sum + t.messageCount, 0);
+                const totalErrors = this.terminals.reduce((sum, t) => sum + t.errorCount, 0);
+                const successRate = connectedTerminals > 0 ?
+                    ((connectedTerminals / this.terminals.length) * 100).toFixed(1) : 0;
+
+                this.log(`\n=== 测试报告 ===`, 'info');
+                this.log(`连接成功率: ${successRate}% (${connectedTerminals}/${this.terminals.length})`, 'info');
+                this.log(`总消息数: ${totalMessages}`, 'info');
+                this.log(`总错误数: ${totalErrors}`, 'info');
+                this.log(`平均响应时间: ${this.stats.avgResponseTime.toFixed(0)}ms`, 'info');
+                this.log(`最大响应时间: ${this.stats.maxResponseTime.toFixed(0)}ms`, 'info');
+                this.log(`最小响应时间: ${this.stats.minResponseTime === Infinity ? 0 : this.stats.minResponseTime.toFixed(0)}ms`, 'info');
+
+                // 性能分析
+                if (this.stats.avgResponseTime > 1000) {
+                    this.log('⚠️ 平均响应时间超过1秒，可能存在性能瓶颈', 'warning');
+                }
+                if (totalErrors > totalMessages * 0.1) {
+                    this.log('⚠️ 错误率超过10%，网络或服务器稳定性可能存在问题', 'warning');
+                }
+                if (connectedTerminals === this.terminals.length && this.stats.avgResponseTime < 500) {
+                    this.log('✅ 整体性能表现良好', 'success');
+                }
+            }
+
+            exportResults() {
+                const results = {
+                    timestamp: new Date().toISOString(),
+                    config: {
+                        serverUrl: document.getElementById('serverUrl').value,
+                        namespace: document.getElementById('namespace').value,
+                        podName: document.getElementById('podName').value,
+                        terminalCount: this.terminals.length,
+                        testDuration: this.testDuration
+                    },
+                    stats: this.stats,
+                    terminals: this.terminals.map(t => ({
+                        id: t.id,
+                        isConnected: t.isConnected,
+                        messageCount: t.messageCount,
+                        errorCount: t.errorCount,
+                        avgResponseTime: t.responseTimes.length > 0 ?
+                            t.responseTimes.reduce((a, b) => a + b, 0) / t.responseTimes.length : 0,
+                        responseTimes: t.responseTimes
+                    }))
+                };
+
+                const dataStr = JSON.stringify(results, null, 2);
+                const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(dataBlob);
+
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `performance_test_${new Date().getTime()}.json`;
+                link.click();
+
+                URL.revokeObjectURL(url);
+                this.log('测试结果已导出', 'success');
+            }
+
+            clearResults() {
+                document.getElementById('terminalsContainer').innerHTML = '';
+                document.getElementById('logArea').innerHTML = '<strong>测试日志:</strong>';
+                document.getElementById('performanceStats').style.display = 'none';
+                this.terminals = [];
+                this.log('结果已清除', 'info');
+            }
+        }
+
+        // 初始化测试器
+        const tester = new TerminalPerformanceTest();
+
+        // 全局函数
+        function startTest() {
+            tester.startTest();
+        }
+
+        function stopTest() {
+            tester.stopTest();
+        }
+
+        function exportResults() {
+            tester.exportResults();
+        }
+
+        function clearResults() {
+            tester.clearResults();
+        }
+
+        // 页面加载完成提示
+        window.addEventListener('load', () => {
+            tester.log('性能测试工具已加载完成', 'success');
+        });
+    </script>
+</body>
+
+</html>

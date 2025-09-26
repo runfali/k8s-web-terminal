@@ -4,9 +4,10 @@ Kubernetes服务模块
 """
 
 import os
+import time
+import asyncio
 import kubernetes
 from kubernetes.client import Configuration as K8sConfiguration
-from kubernetes.stream import ws_client
 from typing import Optional
 from ..config import config
 from ..models import K8sConnectionInfo
@@ -25,6 +26,8 @@ class KubernetesService:
     def __init__(self):
         self.api_client: Optional[kubernetes.client.ApiClient] = None
         self.core_v1: Optional[kubernetes.client.CoreV1Api] = None
+        self._pod_cache = {}  # Pod信息缓存
+        self._cache_ttl = 300  # 缓存有效期5分钟
 
     @log_function_call(k8s_logger)
     def initialize(self) -> None:
@@ -71,15 +74,29 @@ class KubernetesService:
 
     @log_function_call(k8s_logger)
     def check_pod_exists(self, namespace: str, podname: str) -> bool:
-        """检查Pod是否存在"""
+        """检查Pod是否存在（带缓存）"""
         if not self.core_v1:
             raise K8sConnectionError("Kubernetes客户端未初始化")
 
+        # 检查缓存
+        cache_key = f"{namespace}:{podname}"
+        current_time = time.time()
+        
+        if cache_key in self._pod_cache:
+            cached_result, cache_time = self._pod_cache[cache_key]
+            if current_time - cache_time < self._cache_ttl:
+                k8s_logger.debug(f"Pod存在性检查命中缓存: {namespace}/{podname}")
+                return cached_result
+
         try:
             self.core_v1.read_namespaced_pod(name=podname, namespace=namespace)
+            # 缓存结果
+            self._pod_cache[cache_key] = (True, current_time)
             return True
         except kubernetes.client.exceptions.ApiException as e:
             if e.status == 404:
+                # 缓存结果
+                self._pod_cache[cache_key] = (False, current_time)
                 return False
             else:
                 k8s_logger.error(f"检查Pod存在性时出错: {e}")
@@ -109,49 +126,43 @@ class KubernetesService:
                 k8s_logger.error(f"获取Pod信息时出错: {e}")
                 raise K8sConnectionError(f"获取Pod信息时出错: {e}")
 
-    @log_function_call(k8s_logger)
-    def create_exec_stream(self, connection_info: K8sConnectionInfo):
+    @log_async_function_call(k8s_logger)
+    async def create_exec_stream(self, connection_info: K8sConnectionInfo):
         """创建Pod执行流"""
         if not self.core_v1:
             raise K8sConnectionError("Kubernetes客户端未初始化")
 
         try:
-            # 检查Pod是否存在
-            if not self.check_pod_exists(
-                connection_info.namespace, connection_info.podname
-            ):
-                raise PodNotFoundError(
-                    connection_info.podname, connection_info.namespace
-                )
+            # 首先检查Pod是否存在
+            if not self.check_pod_exists(connection_info.namespace, connection_info.podname):
+                raise PodNotFoundError(connection_info.podname, connection_info.namespace)
 
-            # 创建执行流
-            resp = kubernetes.stream.stream(
-                self.core_v1.connect_get_namespaced_pod_exec,
-                connection_info.podname,
-                connection_info.namespace,
-                command=connection_info.command,
-                stderr=True,
-                stdin=True,
-                stdout=True,
-                tty=True,
-                _preload_content=False,
+            # 创建执行流 - 使用正确的stream函数
+            resp = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: kubernetes.stream.stream(
+                    self.core_v1.connect_get_namespaced_pod_exec,
+                    connection_info.podname,
+                    connection_info.namespace,
+                    command=connection_info.command,
+                    stderr=True,
+                    stdin=True,
+                    stdout=True,
+                    tty=True,
+                    _preload_content=False,
+                )
             )
 
-            k8s_logger.info(f"已成功连接到 {connection_info.podname} 的 Pod 执行流")
+            k8s_logger.info(
+                f"成功创建到Pod {connection_info.podname} 的执行流，命名空间：{connection_info.namespace}"
+            )
             return resp
 
-        except kubernetes.client.exceptions.ApiException as e:
-            error_msg = f"连接到 Pod 执行流时出错: {e}"
-            k8s_logger.error(error_msg)
-            raise PodConnectionError(
-                connection_info.podname, connection_info.namespace, str(e)
-            )
+        except PodNotFoundError:
+            raise
         except Exception as e:
-            error_msg = f"在与 Pod 建立连接时发生意外错误: {e}"
-            k8s_logger.error(error_msg)
-            raise PodConnectionError(
-                connection_info.podname, connection_info.namespace, str(e)
-            )
+            k8s_logger.error(f"创建Pod执行流失败: {e}")
+            raise PodConnectionError(connection_info.podname, connection_info.namespace, f"创建Pod执行流失败: {e}")
 
     def is_connected(self) -> bool:
         """检查Kubernetes是否连接"""

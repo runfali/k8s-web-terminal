@@ -332,11 +332,10 @@
 
         // 添加WebSocket重连功能
         let reconnectAttempts = 0;
-        const maxReconnectAttempts = 5;
+        const maxReconnectAttempts = 10;
         const reconnectInterval = 5000; // 5秒（增加间隔）
         let reconnectTimer = null;
         let isReconnecting = false;
-        let lastHeartbeatTime = Date.now();
         const chinesename = "{{ chinesename | e }}"; // 从 Jinja2 模板获取 chinesename 并进行转义
 
         function connectWebSocket() {
@@ -368,45 +367,108 @@
                 }
             };
 
-            socket.onmessage = (event) => {
-                lastHeartbeatTime = Date.now();
+            // 终端写入队列，避免阻塞主线程
+            const terminalWriteQueue = [];
+            let isWritingToTerminal = false;
+            const MAX_WRITE_BATCH_SIZE = 1000; // 每次写入的最大字符数
+            const TERMINAL_WRITE_INTERVAL = 16; // 约60fps的写入间隔
 
+            // 异步处理终端写入队列
+            async function processTerminalWriteQueue() {
+                if (isWritingToTerminal || terminalWriteQueue.length === 0) {
+                    return;
+                }
+
+                isWritingToTerminal = true;
+
+                try {
+                    // 批量处理队列中的数据
+                    let batchData = '';
+                    let batchSize = 0;
+
+                    while (terminalWriteQueue.length > 0 && batchSize < MAX_WRITE_BATCH_SIZE) {
+                        const data = terminalWriteQueue.shift();
+                        batchData += data;
+                        batchSize += data.length;
+                    }
+
+                    if (batchData) {
+                        // 使用requestAnimationFrame优化渲染性能
+                        await new Promise(resolve => {
+                            requestAnimationFrame(() => {
+                                try {
+                                    term.write(batchData);
+                                    resolve();
+                                } catch (e) {
+                                    console.error('写入终端数据失败:', e);
+                                    resolve();
+                                }
+                            });
+                        });
+                    }
+
+                    // 如果还有数据，继续处理
+                    if (terminalWriteQueue.length > 0) {
+                        // 限制队列长度，防止内存泄漏
+                        if (terminalWriteQueue.length > 1000) {
+                            console.warn('终端写入队列过长，清理旧数据');
+                            terminalWriteQueue = terminalWriteQueue.slice(-500); // 保留最近500条
+                        }
+                        setTimeout(processTerminalWriteQueue, TERMINAL_WRITE_INTERVAL);
+                    }
+                } catch (e) {
+                    console.error('处理终端写入队列失败:', e);
+                } finally {
+                    isWritingToTerminal = false;
+                }
+            }
+
+            socket.onmessage = (event) => {
                 // 处理后端发送的数据
                 if (event.data) {
                     try {
-                        // 如果是心跳包（不可见字符），则不显示
-                        if (event.data === "\x00") {
-                            console.log("收到心跳包");
-                            return;
+                        let dataToProcess;
+                        
+                        // 检查数据类型，正确处理二进制数据
+                        if (event.data instanceof Blob) {
+                            // 对于Blob数据，使用FileReader读取内容
+                            const reader = new FileReader();
+                            reader.onload = function() {
+                                const textData = reader.result;
+                                terminalWriteQueue.push(textData);
+                                
+                                // 启动队列处理（如果尚未运行）
+                                if (!isWritingToTerminal) {
+                                    processTerminalWriteQueue();
+                                }
+                            };
+                            reader.onerror = function() {
+                                console.error('读取二进制数据失败');
+                            };
+                            reader.readAsText(event.data);
+                            return; // 异步处理，提前返回
+                        } else if (typeof event.data === 'string') {
+                            // 字符串数据直接处理
+                            dataToProcess = event.data;
+                        } else {
+                            // 其他类型转换为字符串
+                            dataToProcess = String(event.data);
                         }
+                        
+                        // 将数据添加到写入队列，而不是直接写入
+                        terminalWriteQueue.push(dataToProcess);
 
-                        // 不再尝试动态调整终端大小
-
-                        term.write(event.data);
+                        // 启动队列处理（如果尚未运行）
+                        if (!isWritingToTerminal) {
+                            processTerminalWriteQueue();
+                        }
                     } catch (e) {
-                        console.error('写入终端数据失败:', e);
+                        console.error('处理WebSocket消息失败:', e);
                     }
                 }
             };
 
-            // 添加心跳检测
-            const heartbeatInterval = setInterval(() => {
-                if (!socket || socket.readyState !== WebSocket.OPEN) {
-                    clearInterval(heartbeatInterval);
-                    return;
-                }
 
-                // 如果超过90秒没有收到任何消息，发送一个心跳包
-                const now = Date.now();
-                if (now - lastHeartbeatTime > 90000) {
-                    try {
-                        socket.send("\x00");
-                        console.log("发送心跳包");
-                    } catch (e) {
-                        console.error("发送心跳包失败:", e);
-                    }
-                }
-            }, 30000); // 每30秒检查一次
 
             socket.onerror = (error) => {
                 console.error('WebSocket 错误：', error);
@@ -439,24 +501,58 @@
                 } else {
                     console.log("WebSocket正常关闭，不进行重连");
                 }
+
+                // 清理输入缓冲区
+                flushInputBuffer();
             };
         }
 
         connectWebSocket();
 
-        // 处理终端输入
-        term.onData((data) => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
+        // 输入缓冲和批量发送机制
+        let inputBuffer = [];
+        let inputFlushTimer = null;
+        const INPUT_BATCH_SIZE = 100; // 批量发送的最大字符数
+        const INPUT_FLUSH_DELAY = 50; // 防抖延迟时间（毫秒）
+
+        // 刷新输入缓冲区
+        function flushInputBuffer() {
+            if (inputBuffer.length > 0 && socket && socket.readyState === WebSocket.OPEN) {
                 try {
-                    // 直接发送用户输入到后端，不再尝试动态调整终端大小
+                    const data = inputBuffer.join('');
                     socket.send(data);
+                    inputBuffer = [];
+                    console.log(`批量发送 ${data.length} 个字符`);
                 } catch (e) {
                     console.error('发送数据到WebSocket失败:', e);
                     term.writeln(`\r\n\x1b[31m发送数据失败: ${e}\x1b[0m\r\n`);
                 }
+            }
+            if (inputFlushTimer) {
+                clearTimeout(inputFlushTimer);
+                inputFlushTimer = null;
+            }
+        }
+
+        // 处理终端输入 - 使用防抖和批量发送
+        term.onData((data) => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                // 将输入添加到缓冲区
+                inputBuffer.push(data);
+
+                // 如果缓冲区已满，立即发送
+                if (inputBuffer.length >= INPUT_BATCH_SIZE) {
+                    flushInputBuffer();
+                } else {
+                    // 重置防抖定时器
+                    if (inputFlushTimer) {
+                        clearTimeout(inputFlushTimer);
+                    }
+                    inputFlushTimer = setTimeout(flushInputBuffer, INPUT_FLUSH_DELAY);
+                }
             } else {
                 console.warn('WebSocket未连接，无法发送数据');
-                if (!isReconnecting && socket.readyState !== WebSocket.CONNECTING) {
+                if (!isReconnecting && socket && socket.readyState !== WebSocket.CONNECTING) {
                     term.writeln(`\r\n\x1b[33mWebSocket未连接，正在尝试重新连接...\x1b[0m\r\n`);
                     connectWebSocket();
                 }
@@ -617,10 +713,10 @@
                     if (text && socket && socket.readyState === WebSocket.OPEN) {
                         const processedText = processPastedText(text);
 
-                        // 如果文本很长，分批发送以避免连接问题
+                        // 如果文本很长，使用队列分批发送以避免连接问题
                         if (processedText.length > 1000) {
-                            const chunks = splitTextIntoChunks(processedText, 500);
-                            sendTextChunks(chunks, 0);
+                            const chunks = splitTextIntoChunks(processedText, TEXT_CHUNK_SIZE);
+                            sendTextChunks(chunks);
                         } else {
                             socket.send(processedText);
                         }
@@ -658,18 +754,48 @@
             return chunks;
         }
 
-        // 递归发送文本块，避免一次性发送大量数据
-        function sendTextChunks(chunks, index) {
-            if (index >= chunks.length || !socket || socket.readyState !== WebSocket.OPEN) {
+        // 使用队列方式发送文本块，避免递归和阻塞
+        const textSendQueue = [];
+        let isSendingText = false;
+        const TEXT_SEND_INTERVAL = 30; // 文本块发送间隔（毫秒）
+        const TEXT_CHUNK_SIZE = 500; // 每个文本块的大小
+
+        // 处理文本发送队列
+        async function processTextSendQueue() {
+            if (isSendingText || textSendQueue.length === 0 || !socket || socket.readyState !== WebSocket.OPEN) {
                 return;
             }
 
-            socket.send(chunks[index]);
+            isSendingText = true;
 
-            // 短暂延迟后发送下一块
-            setTimeout(() => {
-                sendTextChunks(chunks, index + 1);
-            }, 50);
+            try {
+                while (textSendQueue.length > 0 && socket && socket.readyState === WebSocket.OPEN) {
+                    const chunk = textSendQueue.shift();
+                    socket.send(chunk);
+
+                    // 使用指数退避算法，根据队列长度调整发送间隔
+                    const queueLength = textSendQueue.length;
+                    const delay = Math.min(TEXT_SEND_INTERVAL * (1 + queueLength / 10), 100);
+
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            } catch (e) {
+                console.error('发送文本块失败:', e);
+                term.writeln(`\r\n\x1b[31m发送文本失败: ${e}\x1b[0m\r\n`);
+            } finally {
+                isSendingText = false;
+            }
+        }
+
+        // 优化的文本发送函数，使用队列而非递归
+        function sendTextChunks(chunks) {
+            // 将所有块添加到队列
+            textSendQueue.push(...chunks);
+
+            // 启动队列处理（如果尚未运行）
+            if (!isSendingText) {
+                processTextSendQueue();
+            }
         }
 
     </script>

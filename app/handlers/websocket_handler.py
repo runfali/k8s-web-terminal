@@ -61,7 +61,7 @@ class WebSocketHandler:
                 namespace=namespace, podname=podname, command=["/bin/bash"]
             )
 
-            resp = self.k8s_service.create_exec_stream(connection_info)
+            resp = await self.k8s_service.create_exec_stream(connection_info)
 
             # 创建连接状态 - 修复：直接使用asyncio时间戳
             current_time = asyncio.get_event_loop().time()
@@ -146,9 +146,14 @@ class WebSocketHandler:
     ) -> None:
         """从Pod读取数据并发送到WebSocket"""
         try:
-            timeout = 0.05  # 50毫秒的超时
+            timeout = 0.1  # 100毫秒的超时，减少上下文切换
             last_heartbeat_time = asyncio.get_event_loop().time()
             last_check_time = asyncio.get_event_loop().time()
+            message_buffer = []
+            last_buffer_flush = asyncio.get_event_loop().time()
+            buffer_flush_interval = 0.016  # 约60fps，16ms
+            max_buffer_size = 8192  # 缓冲区最大大小，增加传输效率
+            compression_threshold = 1024  # 数据压缩阈值
 
             while resp.is_open() and connection_status.is_active:
                 try:
@@ -161,7 +166,7 @@ class WebSocketHandler:
                         if stdout_data:
                             stdout_data = self._format_terminal_data(stdout_data)
                             if websocket.client_state == WebSocketState.CONNECTED:
-                                await websocket.send_text(stdout_data)
+                                message_buffer.append(stdout_data.encode())
                                 data_received = True
                             else:
                                 break
@@ -172,13 +177,35 @@ class WebSocketHandler:
                         if stderr_data:
                             stderr_data = self._format_terminal_data(stderr_data)
                             if websocket.client_state == WebSocketState.CONNECTED:
-                                await websocket.send_text(stderr_data)
+                                message_buffer.append(stderr_data.encode())
                                 data_received = True
                             else:
                                 break
 
-                    # 定期检查连接状态
+                    # 检查是否需要刷新缓冲区
                     current_time = asyncio.get_event_loop().time()
+                    should_flush = (
+                        len(message_buffer) >= 10  # 消息数量阈值
+                        or sum(len(d) for d in message_buffer)
+                        >= max_buffer_size  # 总大小阈值
+                        or current_time - last_buffer_flush
+                        >= buffer_flush_interval  # 时间间隔
+                    )
+
+                    if (should_flush and message_buffer) or not resp.is_open():
+                        combined_data = b"".join(message_buffer)
+                        
+                        # 大数据压缩优化（可选功能）
+                        if len(combined_data) > compression_threshold:
+                            # 对于大数据，可以考虑压缩，但会增加CPU开销
+                            # 这里暂时直接发送，后续可以根据实际需求启用压缩
+                            ws_logger.debug(f"发送大数据包: {len(combined_data)} 字节")
+                        
+                        await websocket.send_bytes(combined_data)
+                        message_buffer = []
+                        last_buffer_flush = current_time
+
+                    # 定期检查连接状态
                     if current_time - last_check_time > 30:
                         last_check_time = current_time
                         if not self._check_connection_timeout(
@@ -200,7 +227,7 @@ class WebSocketHandler:
                     ws_logger.error(f"Pod读取循环中出错: {loop_err}")
                     if self._is_connection_error(loop_err):
                         break
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)  # 减少休眠时间到50ms
 
         except Exception as e:
             ws_logger.error(f"从 Pod 读取时出错: {e}")
@@ -210,6 +237,13 @@ class WebSocketHandler:
                 except Exception:
                     pass
         finally:
+            # 清理时发送剩余缓冲区数据
+            if message_buffer and websocket.client_state == WebSocketState.CONNECTED:
+                try:
+                    combined_data = b"".join(message_buffer)
+                    await websocket.send_bytes(combined_data)
+                except Exception as e:
+                    ws_logger.error(f"清理缓冲区时发送数据失败: {e}")
             await self._cleanup_pod_stream(resp, websocket, "read_from_pod")
 
     async def _write_to_pod(
