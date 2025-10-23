@@ -200,6 +200,11 @@ cp ~/.kube/config config/config
 chmod 600 config/config
 ```
 
+注意事项：
+- 应用启动时会自动读取 kubeconfig 并在同目录创建 `config/certs` 子目录，持久化 `certificate-authority-data`、`client-certificate-data`、`client-key-data`（如存在且为 Base64 数据）。这样可以避免依赖 `/tmp` 临时文件，防止被系统清理导致 SSL 连接失败。
+- 请确保 `config` 目录对应用进程可写（至少允许创建/写入 `config/certs`）。若目录不可写，应用将无法持久化证书，可能在长时间运行后出现连接问题。
+- 如果 kubeconfig 使用的是证书文件路径（例如 `certificate-authority: /path/to/ca.crt`），应用不会覆盖这些路径；将继续使用已有文件路径。
+- 生产环境建议将 `K8S_VERIFY_SSL=true`，并确保 CA、客户端证书与私钥有效。
 #### 5. 环境变量配置
 
 创建 `.env` 文件或设置环境变量：
@@ -389,6 +394,20 @@ GROUP BY username;
 
 ## ⚠️ 重要提醒
 
+### 🔐 SSL 证书持久化机制（重要）
+
+为避免应用长时间运行后，系统清理 `/tmp` 临时证书文件导致的 `HTTPSConnectionPool` + `SSLError(FileNotFoundError)` 问题，应用在启动/重连时会：
+- 自动读取 kubeconfig 中的 `certificate-authority-data`、`client-certificate-data`、`client-key-data`（如存在且为 Base64 数据），解码并写入到 `config/certs/` 稳定目录。
+- 强制 Kubernetes 客户端优先使用这些持久化证书文件路径，而不是临时目录。
+- 如果 `load_kube_config` 失败，会回退解析 kubeconfig 的 `server` 并设置为客户端主机地址，保证基本连接参数可用。
+
+这项机制仅涉及本地文件读写，不会对集群内的任何资源做修改；旨在提高连接稳定性与可维护性。
+
+注意：
+- 请确保 `config` 目录可写（可创建/写入 `config/certs`）。
+- 如果 kubeconfig 使用的是证书文件路径（如 `certificate-authority: /path/to/ca.crt`），应用不会覆盖它们，将继续按原路径使用。
+- 生产环境建议将 `K8S_VERIFY_SSL=true`，以确保严格的证书校验。
+
 ### 安全注意事项
 
 - **🔒 配置文件安全**：妥善保管 Kubernetes 配置文件，设置适当的文件权限（600）
@@ -487,6 +506,13 @@ pytest tests/
 - `refactor:` 代码重构
 - `test:` 测试相关
 - `chore:` 维护任务
+
+## 🧭 变更日志
+
+### 2025-10-23
+- 修复：长期运行后 `/tmp` 临时证书文件可能被系统清理，导致 `HTTPSConnectionPool` + `SSLError(FileNotFoundError)` 的问题。
+- 方案：在启动/重连时将 kubeconfig 中的 Base64 证书数据持久化到 `config/certs`，并强制客户端使用这些稳定路径；`load_kube_config` 失败时回退解析 `server` 设置主机。
+- 影响：仅本地文件读写，不修改任何 Kubernetes 集群资源；提升连接稳定性。
 
 ## 📄 许可证
 
