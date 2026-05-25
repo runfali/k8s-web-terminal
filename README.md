@@ -1,537 +1,201 @@
-# 🚀 K8S Web Terminal
+# K8S Web Terminal
 
-<div align="center">
+通过浏览器 WebSocket 连接 Kubernetes Pod 的在线终端工具，支持文件上传和操作日志记录。
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-009688.svg?style=flat&logo=FastAPI)](https://fastapi.tiangolo.com)
-[![Python](https://img.shields.io/badge/Python-3.8+-3776ab.svg?style=flat&logo=python)](https://python.org)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.17+-326ce5.svg?style=flat&logo=kubernetes)](https://kubernetes.io)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat)](https://opensource.org/licenses/MIT)
+## 技术栈
 
-</div>
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| Python | 3.8+ | 运行环境 |
+| FastAPI | 0.104.1 | HTTP + WebSocket 框架 |
+| Uvicorn | 0.23.2 | ASGI 服务器 |
+| kubernetes | 17.17.0 | K8s API 客户端 |
+| websockets | 14.1 | WebSocket 协议支持 |
+| asyncpg | >=0.27.0 | PostgreSQL 异步驱动 |
+| Jinja2 | >=3.1.0 | HTML 模板渲染 |
+| python-multipart | 0.0.6 | 文件上传解析 |
+| pydantic | >=2.0.0 | 数据校验 |
 
-一个功能强大的 Kubernetes Pod Web 终端管理工具，提供安全、高效的浏览器内终端访问体验。
+前端：Xterm.js + xterm-addon-fit（静态文件内置于 `templates/static/`）
 
-## ✨ 核心特性
-
-### 🖥️ 终端功能
-
-- **实时终端访问** - 通过 WebSocket 与 Kubernetes Pod 建立安全连接
-- **现代化界面** - 基于 Xterm.js 的功能完整的交互式终端
-- **响应式设计** - 终端大小自动适应浏览器窗口
-- **心跳检测** - 智能连接状态监控和自动重连机制
-- **会话管理** - 支持多 Pod 并发连接和会话保持
-
-### 📁 文件管理
-
-- **拖拽上传** - 支持文件拖拽到终端区域进行上传
-- **批量传输** - 自动处理文件压缩和解压缩
-- **进度显示** - 实时显示文件上传进度和状态
-- **安全验证** - 文件名安全检查和路径验证
-
-### 📊 监控日志
-
-- **操作记录** - 完整的用户操作日志记录
-- **连接统计** - 实时连接状态和使用统计
-- **健康检查** - 全面的服务健康状态监控
-- **数据持久化** - PostgreSQL 数据库存储历史记录
-
-## 🛠️ 技术架构
-
-### 后端技术栈
-
-| 组件                  | 版本    | 说明                 |
-| --------------------- | ------- | -------------------- |
-| **Python**            | 3.8+    | 核心开发语言         |
-| **FastAPI**           | 0.104.1 | 高性能异步 Web 框架  |
-| **Uvicorn**           | 0.23.2  | ASGI 服务器          |
-| **Kubernetes Client** | 17.17.0 | K8s API 交互客户端   |
-| **WebSockets**        | 14.1    | 实时双向通信         |
-| **AsyncPG**           | 0.27.0+ | 异步 PostgreSQL 驱动 |
-
-### 前端技术栈
-
-| 组件                | 说明                  |
-| ------------------- | --------------------- |
-| **HTML5/CSS3**      | 现代化页面结构和样式  |
-| **JavaScript ES6+** | 异步编程和事件处理    |
-| **Xterm.js**        | 专业级 Web 终端模拟器 |
-| **Xterm-addon-fit** | 终端大小自适应插件    |
-
-### 数据存储
-
-| 组件           | 说明                   |
-| -------------- | ---------------------- |
-| **PostgreSQL** | 用户操作日志和统计数据 |
-| **连接池**     | 异步数据库连接管理     |
-
-## 🏗️ 系统架构
-
-```mermaid
-graph TB
-    subgraph "前端层"
-        A[Web浏览器]
-        B[Xterm.js终端]
-        C[文件上传组件]
-    end
-
-    subgraph "API层"
-        D[FastAPI路由]
-        E[WebSocket处理器]
-        F[静态文件服务]
-    end
-
-    subgraph "业务层"
-        G[终端连接服务]
-        H[文件上传服务]
-        I[数据库服务]
-    end
-
-    subgraph "基础设施层"
-        J[Kubernetes集群]
-        K[PostgreSQL数据库]
-        L[Pod容器]
-    end
-
-    A --> D
-    B --> E
-    C --> F
-    D --> G
-    E --> H
-    F --> I
-    G --> J
-    H --> K
-    I --> L
-```
-
-## 📁 项目结构
+## 项目结构
 
 ```
 k8s-web-terminal/
-├── app/                          # 应用核心模块
-│   ├── api/                      # API 路由层
-│   │   ├── __init__.py
-│   │   └── terminal.py           # 终端 API 端点
-│   ├── handlers/                 # 处理器层
-│   │   ├── __init__.py
-│   │   └── websocket_handler.py  # WebSocket 连接处理
-│   ├── services/                 # 服务层
-│   │   ├── __init__.py
-│   │   ├── database.py           # 数据库服务
-│   │   ├── k8s_service.py        # Kubernetes 服务
-│   │   └── upload_service.py     # 文件上传服务
-│   ├── utils/                    # 工具层
-│   │   ├── __init__.py
-│   │   ├── exceptions.py         # 自定义异常
-│   │   └── logger.py             # 日志管理
-│   ├── __init__.py
-│   ├── config.py                 # 配置管理
-│   └── models.py                 # 数据模型
-├── templates/                    # 前端模板
-│   ├── static/                   # 静态资源
-│   │   ├── xterm-addon-fit.js
-│   │   ├── xterm.css
-│   │   └── xterm.js
-│   └── terminal.html             # 终端页面
-├── config/                       # 配置文件
-│   └── config                    # Kubernetes 配置
-├── logs/                         # 日志目录
-├── main.py                       # 应用入口
-├── requirements.txt              # 依赖列表
-└── README.md                     # 项目文档
+├── main.py                          # 应用入口，FastAPI 实例化 + 中间件 + 路由注册
+├── app/
+│   ├── config.py                    # 配置管理（环境变量覆盖所有参数）
+│   ├── models.py                    # Pydantic 数据模型
+│   ├── api/
+│   │   └── terminal.py              # HTTP / WebSocket 路由（/connect, /ws, /upload 等）
+│   ├── handlers/
+│   │   └── websocket_handler.py     # WebSocket ↔ Pod 双向通信 + 心跳 + 超时管理
+│   ├── services/
+│   │   ├── database.py              # PostgreSQL 连接池 + terminal_logs 表操作
+│   │   ├── k8s_service.py           # K8s 客户端 + 证书持久化 + Pod 缓存
+│   │   └── upload_service.py        # 文件上传（tar 流写入 Pod /tmp）
+│   └── utils/
+│       ├── exceptions.py            # 自定义异常层级（DB/K8s/WS/文件/认证）
+│       └── logger.py                # 统一日志 + 装饰器
+├── templates/
+│   ├── terminal.html                # Web 终端 UI
+│   └── static/                      # Xterm.js 及其 addon 静态文件
+├── config/
+│   └── config                       # kubeconfig 文件（gitignore 外）
+├── requirements.txt                 # 生产依赖
+└── requirements-dev.txt             # 开发/测试/代码质量工具
 ```
 
-## 🚀 快速开始
+## 快速开始
 
-### 环境要求
+### 环境依赖
 
-- **Python**: 3.8 或更高版本
-- **Kubernetes**: v1.17 或更高版本
-- **PostgreSQL**: 12+ (可选，用于日志功能)
-- **浏览器**: 支持 WebSocket 的现代浏览器
+- Python 3.8+
+- Kubernetes 集群访问权限（kubeconfig）
+- PostgreSQL 12+（可选，不启用则跳过日志记录）
 
-### 安装步骤
-
-#### 1. 获取代码
-
-```bash
-# 克隆仓库
-git clone <repository_url>
-cd k8s-web-terminal
-
-# 或者下载源码包并解压
-```
-
-#### 2. 环境准备
+### 安装
 
 ```bash
 # 创建虚拟环境
-python -m venv venv
-
-# 激活虚拟环境
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
-
-# 升级 pip
+python -m venv venv && source venv/bin/activate
 pip install --upgrade pip
-```
-
-#### 3. 安装依赖
-
-```bash
-# 安装生产环境依赖
 pip install -r requirements.txt
-
-# 如果是开发环境，可以安装开发工具
-pip install -r requirements-dev.txt
 ```
 
-#### 4. 配置 Kubernetes
+### 配置
+
+**1. kubeconfig**
+
+将集群的 kubeconfig 文件放到 `config/config`，权限设为 `600`：
 
 ```bash
-# 创建配置目录
 mkdir -p config
-
-# 复制 Kubernetes 配置文件
 cp ~/.kube/config config/config
-
-# 确保配置文件权限正确
 chmod 600 config/config
 ```
 
-注意事项：
-- 应用启动时会自动读取 kubeconfig 并在同目录创建 `config/certs` 子目录，持久化 `certificate-authority-data`、`client-certificate-data`、`client-key-data`（如存在且为 Base64 数据）。这样可以避免依赖 `/tmp` 临时文件，防止被系统清理导致 SSL 连接失败。
-- 请确保 `config` 目录对应用进程可写（至少允许创建/写入 `config/certs`）。若目录不可写，应用将无法持久化证书，可能在长时间运行后出现连接问题。
-- 如果 kubeconfig 使用的是证书文件路径（例如 `certificate-authority: /path/to/ca.crt`），应用不会覆盖这些路径；将继续使用已有文件路径。
-- 生产环境建议将 `K8S_VERIFY_SSL=true`，并确保 CA、客户端证书与私钥有效。
-#### 5. 环境变量配置
+启动时会自动将 kubeconfig 中的 Base64 证书数据解码写入 `config/certs/` 目录（持久化），避免依赖 `/tmp` 临时文件。
 
-创建 `.env` 文件或设置环境变量：
+**2. 环境变量（可选，均有默认值）**
 
 ```bash
-# 数据库配置（可选）
+# 数据库
 export POSTGRES_HOST=localhost
 export POSTGRES_PORT=5432
 export POSTGRES_USER=postgres
 export POSTGRES_PASSWORD=your_password
 export POSTGRES_DB=k8s_terminal
 
-# 服务器配置
+# 服务
 export SERVER_HOST=0.0.0.0
 export SERVER_PORT=8006
 
-# 日志配置
+# K8s
+export K8S_VERIFY_SSL=false   # 生产环境建议设为 true
+
+# 日志
 export LOG_LEVEL=INFO
 export LOG_DIR=logs
-
-# Kubernetes 配置
-export K8S_VERIFY_SSL=false
 ```
 
-#### 6. 数据库初始化（可选）
+完整配置项见 `app/config.py`。
 
-如果使用日志功能，需要准备 PostgreSQL 数据库：
+**3. 数据库初始化（使用日志功能时需要）**
 
 ```sql
--- 创建数据库和用户
 CREATE DATABASE k8s_terminal;
-CREATE USER k8s_user WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE k8s_terminal TO k8s_user;
+-- 应用启动时会自动创建 terminal_logs 表，无需手动建表
 ```
 
-#### 7. 启动应用
+### 启动
 
 ```bash
-# 开发模式启动
+# 开发模式
 python main.py
-
-# 或使用 uvicorn 直接启动
-uvicorn main:app --host 0.0.0.0 --port 8006 --reload
-
-# 生产模式启动
-uvicorn main:app --host 0.0.0.0 --port 8006 --workers 4
-```
-
-### 生产环境部署
-
-```bash
-# 生产模式启动（多进程）
-uvicorn main:app --host 0.0.0.0 --port 8006 --workers 4
-
-# 使用进程管理器（推荐）
-# 安装 supervisor 或 systemd 来管理进程
-```
-
-**注意**: 当前项目未提供 Docker 或 Kubernetes 部署配置文件，如需容器化部署请自行编写相应的配置文件。
-
-## 📖 使用指南
-
-### 基本使用
-
-#### 1. 启动服务
-
-```bash
-python main.py
-```
-
-服务启动后，您将看到类似输出：
-
-```
-INFO:     Started server process [12345]
-INFO:     Waiting for application startup.
-INFO:     K8s Web Terminal 应用启动成功
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8006
-```
-
-#### 2. 访问终端
-
-通过浏览器访问以下 URL：
-
-```
-http://localhost:8006/connect?chinesename=<用户名>&podname=<Pod名称>&namespace=<命名空间>
-```
-
-**示例**：
-
-```
-http://localhost:8006/connect?chinesename=admin&podname=nginx-deployment-7d5b86fd8c-xyz123&namespace=default
-```
-
-**参数说明**：
-
-| 参数          | 必选 | 说明                 | 示例                                 |
-| ------------- | ---- | -------------------- | ------------------------------------ |
-| `chinesename` | ✅   | 用户名，用于日志记录 | `admin`, `developer`                 |
-| `podname`     | ✅   | 目标 Pod 的完整名称  | `nginx-deployment-7d5b86fd8c-xyz123` |
-| `namespace`   | ✅   | Pod 所在的命名空间   | `default`, `kube-system`             |
-
-#### 3. 终端操作
-
-连接成功后，您将看到一个功能完整的终端界面：
-
-- **命令执行**：直接输入 Linux 命令
-- **快捷键支持**：
-  - `Ctrl+C`: 中断当前命令
-  - `Ctrl+D`: 退出当前 shell
-  - `Ctrl+L`: 清屏
-  - `Tab`: 命令自动补全
-- **复制粘贴**：
-  - 选中文本自动复制
-  - 右键或 `Ctrl+V` 粘贴
-
-### 高级功能
-
-#### 文件上传
-
-支持两种文件上传方式：
-
-**方式一：拖拽上传**
-
-1. 将文件直接拖拽到终端区域
-2. 在弹出的对话框中确认上传
-3. 文件将保存到 Pod 的 `/tmp/` 目录
-
-**方式二：API 上传**
-
-```bash
-curl -X POST \
-  "http://localhost:8006/upload/default/my-pod" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@/path/to/your/file.txt"
-```
-
-#### 健康检查
-
-```bash
-# 检查服务状态
-curl http://localhost:8006/health
-
-# 响应示例
-{
-  "status": "healthy",
-  "timestamp": "2024-08-28T10:30:00Z",
-  "version": "1.0.0",
-  "database": "connected",
-  "kubernetes": "connected"
-}
-```
-
-#### API 文档
-
-访问自动生成的 API 文档：
-
-- **Swagger UI**: http://localhost:8006/docs
-- **ReDoc**: http://localhost:8006/redoc
-
-### 监控和日志
-
-#### 应用日志
-
-```bash
-# 查看实时日志
-tail -f logs/terminal.log
-
-# 查看错误日志
-grep ERROR logs/terminal.log
-```
-
-#### 连接统计
-
-访问 `/health` 端点可以获取基本统计信息，或通过数据库查询详细信息：
-
-```sql
--- 查看连接历史
-SELECT * FROM terminal_logs ORDER BY connection_time DESC LIMIT 10;
-
--- 统计用户活跃度
-SELECT username, COUNT(*) as connections
-FROM terminal_logs
-WHERE connection_time >= NOW() - INTERVAL '24 hours'
-GROUP BY username;
-```
-
-## ⚠️ 重要提醒
-
-### 🔐 SSL 证书持久化机制（重要）
-
-为避免应用长时间运行后，系统清理 `/tmp` 临时证书文件导致的 `HTTPSConnectionPool` + `SSLError(FileNotFoundError)` 问题，应用在启动/重连时会：
-- 自动读取 kubeconfig 中的 `certificate-authority-data`、`client-certificate-data`、`client-key-data`（如存在且为 Base64 数据），解码并写入到 `config/certs/` 稳定目录。
-- 强制 Kubernetes 客户端优先使用这些持久化证书文件路径，而不是临时目录。
-- 如果 `load_kube_config` 失败，会回退解析 kubeconfig 的 `server` 并设置为客户端主机地址，保证基本连接参数可用。
-
-这项机制仅涉及本地文件读写，不会对集群内的任何资源做修改；旨在提高连接稳定性与可维护性。
-
-注意：
-- 请确保 `config` 目录可写（可创建/写入 `config/certs`）。
-- 如果 kubeconfig 使用的是证书文件路径（如 `certificate-authority: /path/to/ca.crt`），应用不会覆盖它们，将继续按原路径使用。
-- 生产环境建议将 `K8S_VERIFY_SSL=true`，以确保严格的证书校验。
-
-### 安全注意事项
-
-- **🔒 配置文件安全**：妥善保管 Kubernetes 配置文件，设置适当的文件权限（600）
-- **🌐 网络安全**：生产环境请配置防火墙和访问控制，避免暴露在公网
-- **🔐 SSL/TLS**：生产环境强烈建议启用 SSL 证书验证
-- **👥 用户认证**：建议集成 RBAC 或其他认证系统
-- **📝 审计日志**：启用详细的操作审计和监控
-
-### 性能优化
-
-- **🚀 连接池**：合理配置数据库连接池大小
-- **⚡ 并发限制**：根据服务器性能调整并发连接数
-- **💾 内存管理**：监控 WebSocket 连接的内存使用
-- **🔄 连接超时**：配置适当的连接超时时间
-
-### 故障排除
-
-#### 常见问题
-
-**Q: Pod 连接失败**
-
-```bash
-# 检查 Pod 状态
-kubectl get pod <pod-name> -n <namespace>
-
-# 检查 Pod 日志
-kubectl logs <pod-name> -n <namespace>
-
-# 验证网络连通性
-kubectl exec -it <pod-name> -n <namespace> -- /bin/bash
-```
-
-**Q: 数据库连接异常**
-
-```bash
-# 检查数据库服务状态
-pg_isready -h <host> -p <port>
-
-# 测试数据库连接
-psql -h <host> -p <port> -U <user> -d <database>
-```
-
-**Q: WebSocket 连接中断**
-
-- 检查防火墙设置
-- 验证代理配置
-- 调整心跳间隔时间
-
-#### 日志级别配置
-
-```bash
-# 调试模式
-export LOG_LEVEL=DEBUG
 
 # 生产模式
-export LOG_LEVEL=INFO
+uvicorn main:app --host 0.0.0.0 --port 8006 --workers 4
 ```
 
-## 🤝 贡献指南
+多 worker 安全：每个 WebSocket 连接都是独立的 K8s exec stream（连到不同 Pod 的独立 bash 会话），不存在多终端共享同一会话的场景，无需 sticky session。`workers` 数量可通过 `SERVER_WORKERS` 环境变量控制。
 
-我们欢迎所有形式的贡献！
+## 使用指南
 
-### 如何贡献
+### 访问终端
 
-1. **🍴 Fork** 本仓库
-2. **🔀 创建特性分支** (`git checkout -b feature/AmazingFeature`)
-3. **💾 提交更改** (`git commit -m 'Add some AmazingFeature'`)
-4. **📤 推送分支** (`git push origin feature/AmazingFeature`)
-5. **🔀 提交 Pull Request**
+浏览器打开：
 
-### 开发规范
+```
+http://<host>:8006/connect?chinesename=<用户名>&podname=<Pod名称>&namespace=<命名空间>
+```
+
+| 参数 | 必选 | 说明 |
+|------|------|------|
+| `chinesename` | 是 | 用户名，记入操作日志 |
+| `podname` | 是 | Pod 完整名称 |
+| `namespace` | 是 | Pod 所在命名空间 |
+
+页面加载后会自动建立 WebSocket 连接到 Pod 的 `/bin/bash`，终端断开时自动重连（最多 10 次，指数退避）。
+
+### WebSocket 端点
+
+```
+ws://<host>:8006/ws/{namespace}/{podname}?chinesename=<用户名>
+```
+
+支持 PTY resize 消息（终端窗口大小变化自动同步到 Pod）。
+
+### 文件上传
+
+**拖拽上传**：将文件拖到终端区域，确认后上传到 Pod 的 `/tmp/` 目录。
+
+**API 上传**：
 
 ```bash
-# 代码格式化
-black app/
-isort app/
-
-# 类型检查
-mypy app/
-
-# 代码质量检查
-flake8 app/
-
-# 运行测试
-pytest tests/
+curl -X POST "http://<host>:8006/upload/{namespace}/{podname}" \
+  -F "file=@/local/path/file.txt"
 ```
 
-### 提交规范
+文件大小限制：100MB。上传通过 tar 流写入 Pod，自动创建目标目录。
 
-使用 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
+### 健康检查
 
-- `feat:` 新功能
-- `fix:` 修复 bug
-- `docs:` 文档更新
-- `style:` 代码格式调整
-- `refactor:` 代码重构
-- `test:` 测试相关
-- `chore:` 维护任务
+```bash
+curl http://<host>:8006/health
+# {"status":"healthy","database":"connected","kubernetes":"connected"}
+```
 
-## 🧭 变更日志
+### API 文档
 
-### 2025-10-23
-- 修复：长期运行后 `/tmp` 临时证书文件可能被系统清理，导致 `HTTPSConnectionPool` + `SSLError(FileNotFoundError)` 的问题。
-- 方案：在启动/重连时将 kubeconfig 中的 Base64 证书数据持久化到 `config/certs`，并强制客户端使用这些稳定路径；`load_kube_config` 失败时回退解析 `server` 设置主机。
-- 影响：仅本地文件读写，不修改任何 Kubernetes 集群资源；提升连接稳定性。
+- Swagger UI: `http://<host>:8006/docs`
+- ReDoc: `http://<host>:8006/redoc`
 
-## 📄 许可证
+### 查看日志
 
-本项目基于 [MIT License](LICENSE) 开源协议。
+```bash
+tail -f logs/terminal.log
+```
 
-## 🙏 致谢
+或查询数据库：
 
-感谢以下开源项目：
+```sql
+SELECT * FROM terminal_logs ORDER BY connection_time DESC LIMIT 10;
+```
 
-- [FastAPI](https://fastapi.tiangolo.com/) - 现代化的 Python Web 框架
-- [Xterm.js](https://xtermjs.org/) - 强大的 Web 终端组件
-- [Kubernetes Python Client](https://github.com/kubernetes-client/python) - K8s API 客户端
+## 近期优化摘要
 
----
+- **SSL 证书持久化**：启动时将 kubeconfig 中 Base64 证书写入 `config/certs/`，避免 `/tmp` 清理导致 `SSLError(FileNotFoundError)`
+- **Pod 存在性缓存**：带 TTL 的内存缓存（命中 5 分钟 / 未命中 30 秒），减少 K8s API 调用
+- **前端内存管理**：终端写入队列限长 500~1000 条，防止长时间运行内存泄漏
+- **数据传输优化**：后端读缓冲区 8192 字节 + 消息批量合并刷新（~60fps），减少系统调用
+- **输入防抖**：用户输入 50ms 窗口内批量发送，粘贴长文本自动分块投递
+- **重连机制**：指数退避重连，最多 10 次，避免惊群
 
-<div align="center">
+## 安全注意事项
 
-**[📚 文档](docs/) | [🐛 报告问题](issues) | [💡 功能建议](issues) | [💬 讨论](discussions)**
-
-Made with ❤️ by K8s Web Terminal Team
-
-</div>
+- kubeconfig 文件权限应为 `600`，防止被其他用户读取
+- 生产环境建议 `K8S_VERIFY_SSL=true` 启用证书校验
+- 服务不包含认证机制，请部署在内网并通过防火墙限制访问来源
+- CORS 默认允许所有来源（`*`），如有需要设置 `CORS_ORIGINS` 环境变量
+- 文件上传大小限制 100MB，可配合 `BodySizeLimitMiddleware` 在 ASGI 层二次拦截

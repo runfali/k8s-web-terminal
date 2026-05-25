@@ -10,9 +10,7 @@ import io
 import tarfile
 from fastapi import UploadFile
 import kubernetes
-from kubernetes.client import Configuration as K8sConfiguration
 from kubernetes.stream import ws_client
-from ..config import config
 from ..models import FileUploadResponse
 from ..utils.exceptions import (
     FileValidationError,
@@ -26,7 +24,9 @@ from ..utils.logger import upload_logger, log_async_function_call
 class FileUploadService:
     """文件上传服务类"""
 
-    def __init__(self):
+    def __init__(self, k8s_service, max_upload_size: int = 100 * 1024 * 1024):
+        self.k8s_service = k8s_service
+        self.max_upload_size = max_upload_size  # 上传文件大小限制，默认100MB
         self.target_dir = "/tmp"  # 目标目录
 
     @log_async_function_call(upload_logger)
@@ -51,7 +51,23 @@ class FileUploadService:
             upload_logger.error(error_msg)
             raise FileValidationError(error_msg)
 
-        upload_logger.info(f"文件验证通过: {safe_filename}")
+        # 检查文件大小
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        if file_size > self.max_upload_size:
+            error_msg = (
+                f"文件 '{original_filename}' 大小为 {file_size} 字节，超过限制 "
+                f"{self.max_upload_size} 字节"
+            )
+            upload_logger.error(error_msg)
+            raise FileValidationError(error_msg)
+        if file_size == 0:
+            error_msg = f"文件 '{original_filename}' 为空，不允许上传空文件"
+            upload_logger.error(error_msg)
+            raise FileValidationError(error_msg)
+
+        upload_logger.info(f"文件验证通过: {safe_filename}, 大小: {file_size} 字节")
         return safe_filename
 
     @log_async_function_call(upload_logger)
@@ -86,7 +102,11 @@ class FileUploadService:
     ) -> FileUploadResponse:
         """上传文件到Pod - 完全按照原版本main.py的实现"""
         tmp_file_path = None
-        api_client = None
+
+        if not self.k8s_service.core_v1:
+            error_msg = "Kubernetes 客户端未初始化，无法上传文件"
+            upload_logger.error(error_msg)
+            return FileUploadResponse(error=error_msg, status_code=500)
 
         try:
             # 验证文件
@@ -98,37 +118,6 @@ class FileUploadService:
                 f"destination={self.target_dir}/{safe_filename}"
             )
 
-            # 按照原版本方式重新加载K8s配置
-            if not os.path.exists(config.k8s.config_file):
-                error_msg = f"在 {config.k8s.config_file} 处未找到 Kubernetes 配置文件"
-                upload_logger.error(error_msg)
-                return FileUploadResponse(error=error_msg, status_code=500)
-
-            try:
-                kubernetes.config.load_kube_config(config_file=config.k8s.config_file)
-                k8s_client_config = K8sConfiguration.get_default_copy()
-                k8s_client_config.verify_ssl = False
-                # 配置与 K8s API Server 的 WebSocket 连接的 ping/pong
-                k8s_client_config.websocket_client_params = {
-                    "ping_interval": 30,  # 每30秒发送一次ping
-                    "ping_timeout": 60,  # 60秒内未收到pong则超时
-                    "max_size": 10 * 1024 * 1024,  # 增加最大消息大小到10MB
-                    "skip_utf8_validation": True,  # 跳过UTF-8验证以提高性能
-                }
-                # 创建专用的ApiClient
-                api_client = kubernetes.client.ApiClient(
-                    configuration=k8s_client_config
-                )
-                # 创建专用的CoreV1Api
-                core_v1 = kubernetes.client.CoreV1Api(api_client=api_client)
-                upload_logger.info(
-                    "Kubernetes 配置已成功加载和自定义，忽略 SSL 证书验证，并已配置 WebSocket ping/pong (用于上传)。"
-                )
-            except Exception as e:
-                error_msg = f"加载 Kubernetes 配置时出错 (用于上传): {e}"
-                upload_logger.error(error_msg)
-                return FileUploadResponse(error=error_msg, status_code=500)
-
             # 保存临时文件
             tmp_file_path = await self.save_temp_file(file)
 
@@ -138,7 +127,7 @@ class FileUploadService:
                 # 创建目标目录 (如果不存在)
                 mkdir_command = ["mkdir", "-p", self.target_dir]
                 resp_mkdir = kubernetes.stream.stream(
-                    core_v1.connect_get_namespaced_pod_exec,
+                    self.k8s_service.core_v1.connect_get_namespaced_pod_exec,
                     podname,
                     namespace,
                     command=mkdir_command,
@@ -173,7 +162,7 @@ class FileUploadService:
                 exec_command = ["tar", "xf", "-", "-C", self.target_dir]
 
                 resp_cp = kubernetes.stream.stream(
-                    core_v1.connect_get_namespaced_pod_exec,
+                    self.k8s_service.core_v1.connect_get_namespaced_pod_exec,
                     podname,
                     namespace,
                     command=exec_command,
@@ -246,20 +235,12 @@ class FileUploadService:
             return FileUploadResponse(error=error_msg, status_code=500)
 
         finally:
-            # 关闭ApiClient
-            if api_client:
-                try:
-                    api_client.close()
-                    upload_logger.debug("上传服务ApiClient已关闭")
-                except Exception as close_err:
-                    upload_logger.error(f"关闭上传服务ApiClient时出错: {close_err}")
-
             # 清理临时文件
             if tmp_file_path:
                 await self.cleanup_temp_file(tmp_file_path)
 
 
 # 创建文件上传服务实例的工厂函数
-def create_upload_service() -> FileUploadService:
-    """创建文件上传服务实例 - 不再需要k8s_service参数"""
-    return FileUploadService()
+def create_upload_service(k8s_service) -> FileUploadService:
+    """创建文件上传服务实例"""
+    return FileUploadService(k8s_service)

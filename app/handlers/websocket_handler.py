@@ -105,12 +105,13 @@ class WebSocketHandler:
         self, websocket: WebSocket, resp, connection_status: ConnectionStatus
     ) -> None:
         """处理WebSocket和Pod之间的通信"""
+        cleaned_up_state = {"done": False}  # 每个连接独立的清理标志
         # 创建读写任务
         read_task = asyncio.create_task(
-            self._read_from_pod(websocket, resp, connection_status)
+            self._read_from_pod(websocket, resp, connection_status, cleaned_up_state)
         )
         write_task = asyncio.create_task(
-            self._write_to_pod(websocket, resp, connection_status)
+            self._write_to_pod(websocket, resp, connection_status, cleaned_up_state)
         )
 
         try:
@@ -142,13 +143,14 @@ class WebSocketHandler:
                 pass
 
     async def _read_from_pod(
-        self, websocket: WebSocket, resp, connection_status: ConnectionStatus
+        self, websocket: WebSocket, resp, connection_status: ConnectionStatus,
+        cleaned_up_state: dict = None,
     ) -> None:
         """从Pod读取数据并发送到WebSocket"""
         try:
             timeout = 0.1  # 100毫秒的超时，减少上下文切换
-            last_heartbeat_time = asyncio.get_event_loop().time()
             last_check_time = asyncio.get_event_loop().time()
+            last_heartbeat_time = asyncio.get_event_loop().time()
             message_buffer = []
             last_buffer_flush = asyncio.get_event_loop().time()
             buffer_flush_interval = 0.016  # 约60fps，16ms
@@ -214,7 +216,7 @@ class WebSocketHandler:
                             connection_status.is_active = False
                             break
 
-                    # 发送心跳
+                    # K8s SPDY stream 通道层 keepalive
                     if current_time - last_heartbeat_time > 15:
                         await self._send_heartbeat(resp)
                         last_heartbeat_time = current_time
@@ -244,10 +246,11 @@ class WebSocketHandler:
                     await websocket.send_bytes(combined_data)
                 except Exception as e:
                     ws_logger.error(f"清理缓冲区时发送数据失败: {e}")
-            await self._cleanup_pod_stream(resp, websocket, "read_from_pod")
+            await self._cleanup_pod_stream(resp, websocket, "read_from_pod", cleaned_up_state)
 
     async def _write_to_pod(
-        self, websocket: WebSocket, resp, connection_status: ConnectionStatus
+        self, websocket: WebSocket, resp, connection_status: ConnectionStatus,
+        cleaned_up_state: dict = None,
     ) -> None:
         """从WebSocket读取数据并发送到Pod"""
         try:
@@ -302,7 +305,7 @@ class WebSocketHandler:
         except Exception as outer_e:
             ws_logger.error(f"写入 Pod 的外层循环出错: {outer_e}")
         finally:
-            await self._cleanup_pod_stream(resp, websocket, "write_to_pod")
+            await self._cleanup_pod_stream(resp, websocket, "write_to_pod", cleaned_up_state)
 
     async def _process_websocket_message(self, data: str, resp) -> None:
         """处理WebSocket消息"""
@@ -385,13 +388,19 @@ class WebSocketHandler:
         return True
 
     async def _send_heartbeat(self, resp) -> None:
-        """发送Kubernetes连接心跳"""
+        """K8s SPDY stream 通道层 keepalive 心跳
+
+        向 stdin 写入空字符串来维持 K8s SPDY exec stream 通道的应用层活性。
+        这不是 WebSocket 层的 ping/pong（后者仅保 TCP 层），而是 SPDY stream
+        通道层面的 keepalive，确保 K8s API server 不会因 stdin 通道长时间无
+        写入而判定流不活跃并关闭。
+        """
         try:
             if resp.is_open():
                 resp.write_stdin("")
-                ws_logger.debug("发送Kubernetes连接心跳")
+                ws_logger.debug("发送 K8s SPDY stream 通道 keepalive")
         except Exception as heartbeat_err:
-            ws_logger.error(f"发送Kubernetes心跳失败: {heartbeat_err}")
+            ws_logger.error(f"发送 K8s SPDY stream keepalive 失败: {heartbeat_err}")
 
     def _is_connection_error(self, error: Exception) -> bool:
         """判断是否为连接错误"""
@@ -399,9 +408,16 @@ class WebSocketHandler:
         return "connection" in error_str or "closed" in error_str
 
     async def _cleanup_pod_stream(
-        self, resp, websocket: WebSocket, source: str
+        self, resp, websocket: WebSocket, source: str,
+        cleaned_up_state: dict = None,
     ) -> None:
         """清理Pod流资源"""
+        if cleaned_up_state and cleaned_up_state.get("done"):
+            ws_logger.debug(f"流资源已清理，跳过重复调用 ({source})")
+            return
+        if cleaned_up_state is not None:
+            cleaned_up_state["done"] = True
+
         ws_logger.info(f"正在清理Pod流资源... (来源: {source})")
 
         if resp.is_open():

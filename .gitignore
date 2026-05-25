@@ -3,3 +3,4 @@
 .vscode
 logs
 .trae
+__pycache__/

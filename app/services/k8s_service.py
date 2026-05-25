@@ -29,7 +29,8 @@ class KubernetesService:
         self.api_client: Optional[kubernetes.client.ApiClient] = None
         self.core_v1: Optional[kubernetes.client.CoreV1Api] = None
         self._pod_cache = {}  # Pod信息缓存
-        self._cache_ttl = 300  # 缓存有效期5分钟
+        self._cache_ttl = 300  # 缓存有效期5分钟（存在时）
+        self._negative_cache_ttl = 30  # 不存在时缓存30秒，避免假阴性
 
     @log_function_call(k8s_logger)
     def initialize(self) -> None:
@@ -207,9 +208,12 @@ class KubernetesService:
 
         if cache_key in self._pod_cache:
             cached_result, cache_time = self._pod_cache[cache_key]
-            if current_time - cache_time < self._cache_ttl:
+            ttl = self._cache_ttl if cached_result else self._negative_cache_ttl
+            if current_time - cache_time < ttl:
                 k8s_logger.debug(f"Pod存在性检查命中缓存: {namespace}/{podname}")
                 return cached_result
+            else:
+                del self._pod_cache[cache_key]
 
         # 最多尝试2次（初始尝试 + 1次重试）
         max_retries = 1

@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+from starlette.types import ASGIApp, Receive, Scope, Send, Message
 import uvicorn
 
 from app.config import config
@@ -102,14 +103,74 @@ app.add_middleware(
     allow_headers=config.cors.allow_headers,
 )
 
+# 请求体大小限制中间件（ASGI级别，与应用层校验形成双重防护）
+class BodySizeLimitMiddleware:
+    MAX_BODY_SIZE = 100 * 1024 * 1024  # 100MB
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        content_length = self._get_content_length(scope)
+        if content_length is not None and content_length > self.MAX_BODY_SIZE:
+            return await self._send_413(send)
+
+        total_size = 0
+        exceeded = False
+
+        async def limited_receive() -> Message:
+            nonlocal total_size, exceeded
+            message = await receive()
+            if message["type"] == "http.request":
+                total_size += len(message.get("body", b""))
+                if total_size > self.MAX_BODY_SIZE:
+                    exceeded = True
+            return message
+
+        async def limited_send(message: Message) -> None:
+            if message["type"] == "http.response.start" and exceeded:
+                await self._send_413(send)
+            else:
+                await send(message)
+
+        await self.app(scope, limited_receive, limited_send)
+
+    @staticmethod
+    def _get_content_length(scope: Scope) -> int | None:
+        for key, value in scope.get("headers", []):
+            if key == b"content-length":
+                try:
+                    return int(value)
+                except (ValueError, TypeError):
+                    pass
+        return None
+
+    @staticmethod
+    async def _send_413(send: Send) -> None:
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [[b"content-type", b"application/json"]],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b'{"detail":"Request body exceeds maximum allowed size (100MB)"}',
+        })
+
+app.add_middleware(BodySizeLimitMiddleware)
+
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="templates/static"), name="static")
 
-# 注册路由
+# 注册路由（带 /api/v1 前缀，Swagger 文档中展示）
 app.include_router(terminal_router, prefix="/api/v1")
 
-# 兼容原始路由（保持向后兼容）
-app.include_router(terminal_router)
+# 向后兼容无前缀路由（前端 terminal.html 仍通过 /ws/... 连接）
+# 不展示在 Swagger 文档中，避免端点重复
+app.include_router(terminal_router, include_in_schema=False)
 
 
 @app.get("/health", response_model=HealthCheckResponse, summary="健康检查")
@@ -239,7 +300,7 @@ async def upload_file_to_pod_compat(
 
     try:
         # 使用upload_service处理上传
-        upload_service = create_upload_service()
+        upload_service = create_upload_service(k8s_service)
         result = await upload_service.upload_file(namespace, podname, file)
 
         # 如果有错误，抛出HTTP异常
@@ -286,7 +347,7 @@ if __name__ == "__main__":
         timeout_keep_alive=config.websocket.timeout_keep_alive,
         limit_concurrency=config.server.limit_concurrency,
         limit_max_requests=config.server.limit_max_requests,
-        workers=1,  # WebSocket应用建议使用单worker
+        workers=config.server.workers,  # 多worker安全：每个WebSocket连接独立连到不同Pod，无需sticky session
         reload=False,  # 生产环境建议关闭reload
         log_level=config.log.log_level.lower(),
     )

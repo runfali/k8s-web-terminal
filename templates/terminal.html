@@ -52,41 +52,16 @@
             position: relative;
         }
 
-        /* 自定义滚动条样式 */
-        .xterm-viewport::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-
-        .xterm-viewport::-webkit-scrollbar-track {
-            background: #1e1e1e;
-            border-radius: 4px;
-        }
-
-        .xterm-viewport::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 4px;
-        }
-
-        .xterm-viewport::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
-
         /* 隐藏滚动条但保留功能 */
         .xterm-viewport {
-            scrollbar-width: thin;
-            /* Firefox */
-            scrollbar-color: #444 #1e1e1e;
-            /* Firefox */
             overflow-y: auto;
-            /* 完全隐藏滚动条 */
             -ms-overflow-style: none;
             /* IE and Edge */
             scrollbar-width: none;
             /* Firefox */
         }
 
-        /* 完全隐藏滚动条 - Webkit浏览器 */
+        /* 隐藏滚动条 - Webkit浏览器 */
         .xterm-viewport::-webkit-scrollbar {
             display: none;
         }
@@ -97,23 +72,19 @@
             height: auto !important;
         }
 
-        /* 让终端适应容器宽度 */
+        /* 终端样式 */
         .xterm {
             width: 100% !important;
             max-width: none !important;
+            padding: 5px;
+            border-radius: 6px;
+            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.4);
+            background-color: rgba(0, 0, 0, 0.2);
         }
 
         /* 确保终端行能够自适应宽度 */
         .xterm-rows {
             width: 100% !important;
-        }
-
-        /* 美化终端整体外观 */
-        .xterm {
-            padding: 5px;
-            border-radius: 6px;
-            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.4);
-            background-color: rgba(0, 0, 0, 0.2);
         }
 
         /* 添加终端标题栏 */
@@ -368,7 +339,7 @@
             };
 
             // 终端写入队列，避免阻塞主线程
-            const terminalWriteQueue = [];
+            let terminalWriteQueue = [];
             let isWritingToTerminal = false;
             const MAX_WRITE_BATCH_SIZE = 1000; // 每次写入的最大字符数
             const TERMINAL_WRITE_INTERVAL = 16; // 约60fps的写入间隔

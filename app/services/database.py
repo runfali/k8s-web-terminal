@@ -89,9 +89,6 @@ class DatabaseService:
                     action,
                 )
 
-                # 立即提交事务
-                await connection.execute("COMMIT")
-
                 db_logger.info(
                     f"日志记录成功: 用户名={username}, 命名空间={namespace}, Pod名称={podname}, 操作={action}"
                 )
